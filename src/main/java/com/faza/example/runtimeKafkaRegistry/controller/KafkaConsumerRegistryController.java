@@ -1,12 +1,18 @@
 package com.faza.example.runtimeKafkaRegistry.controller;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.faza.example.runtimeKafkaRegistry.model.ConsumerAction;
+import com.faza.example.runtimeKafkaRegistry.model.ConsumerActionRequest;
 import com.faza.example.runtimeKafkaRegistry.model.KafkaConsumerAssignmentResponse;
 import com.faza.example.runtimeKafkaRegistry.model.KafkaConsumerResponse;
+import com.faza.example.runtimeKafkaRegistry.model.Constant;
+import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.common.TopicPartition;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.kafka.config.KafkaListenerEndpointRegistry;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.listener.MessageListenerContainer;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -28,6 +34,12 @@ public class KafkaConsumerRegistryController {
     @Autowired
     private KafkaListenerEndpointRegistry kafkaListenerEndpointRegistry;
 
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    @Autowired
+    private KafkaTemplate<String, String> kafkaTemplate;
+
     @GetMapping
     public List<KafkaConsumerResponse> getConsumerIds() {
         return kafkaListenerEndpointRegistry.getListenerContainerIds()
@@ -45,8 +57,10 @@ public class KafkaConsumerRegistryController {
         } else if (listenerContainer.isRunning()) {
             throw new RuntimeException(String.format("Consumer with id %s is already running", consumerId));
         } else {
-            log.info("Running a consumer with id " + consumerId);
-            listenerContainer.start();
+            publishMessage(ConsumerActionRequest.builder()
+                    .consumerId(consumerId)
+                    .consumerAction(ConsumerAction.ACTIVATE)
+                    .build());
         }
     }
 
@@ -63,8 +77,10 @@ public class KafkaConsumerRegistryController {
         } else if (listenerContainer.isPauseRequested()) {
             throw new RuntimeException(String.format("Consumer with id %s is already requested to be paused", consumerId));
         } else {
-            log.info("Pausing a consumer with id " + consumerId);
-            listenerContainer.pause();
+            publishMessage(ConsumerActionRequest.builder()
+                    .consumerId(consumerId)
+                    .consumerAction(ConsumerAction.PAUSE)
+                    .build());
         }
     }
 
@@ -79,8 +95,10 @@ public class KafkaConsumerRegistryController {
         } else if (!listenerContainer.isContainerPaused()) {
             throw new RuntimeException(String.format("Consumer with id %s is not paused", consumerId));
         } else {
-            log.info("Resuming a consumer with id " + consumerId);
-            listenerContainer.resume();
+            publishMessage(ConsumerActionRequest.builder()
+                    .consumerId(consumerId)
+                    .consumerAction(ConsumerAction.RESUME)
+                    .build());
         }
     }
 
@@ -93,8 +111,10 @@ public class KafkaConsumerRegistryController {
         } else if (!listenerContainer.isRunning()) {
             throw new RuntimeException(String.format("Consumer with id %s is already stop", consumerId));
         } else {
-            log.info("Stopping a consumer with id " + consumerId);
-            listenerContainer.stop();
+            publishMessage(ConsumerActionRequest.builder()
+                    .consumerId(consumerId)
+                    .consumerAction(ConsumerAction.DEACTIVATE)
+                    .build());
         }
     }
 
@@ -120,5 +140,11 @@ public class KafkaConsumerRegistryController {
                 .topic(topicPartition.topic())
                 .partition(topicPartition.partition())
                 .build();
+    }
+
+    @SneakyThrows
+    private void publishMessage(Object message) {
+        log.info(String.format("Publishing message %s to %s", message, Constant.CONSUMER_ACTION_TOPIC));
+        kafkaTemplate.send(Constant.CONSUMER_ACTION_TOPIC, objectMapper.writeValueAsString(message));
     }
 }
